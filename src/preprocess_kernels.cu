@@ -36,6 +36,25 @@ __global__ void generateVoxels_random_kernel(float *points, size_t points_size,
 
   int voxel_idx = floorf((point.x - min_x_range)/pillar_x_size);
   int voxel_idy = floorf((point.y - min_y_range)/pillar_y_size);
+  // We found the above floorf() and assigning a float number to an int variable in GPU
+  // resulted in rounding up the figure by +1, e.g.: int voxel_idy = floorf(319.9999998),
+  // the value of voxel_idy is 320, not 319! and our grid_y_size == 320, this caused  
+  // invalid out-of-bounding access to mask and voxels, and the memory was then corrupted,
+  // a crash happened accordingly. So, the following checking should be done :
+  #if 1
+  // keep the points at the edge of the gird
+  if (voxel_idx >= grid_x_size) {
+      voxel_idx = grid_x_size - 1;
+  }
+  if (voxel_idy >= grid_y_size) {
+      voxel_idy = grid_y_size - 1;
+  }
+  #else
+  // just drop the points at the edge of the grid
+  if (voxel_idx >= grid_x_size || voxel_idy >= grid_y_size)
+      return;
+  #endif
+
   unsigned int voxel_index = voxel_idy * grid_x_size
                             + voxel_idx;
 
@@ -145,6 +164,10 @@ __global__ void generateBaseFeatures_kernel(unsigned int *mask, float *voxels,
 
   unsigned int current_pillarId = 0;
   current_pillarId = atomicAdd(pillar_num, 1);
+
+  // When current_pillarId >= MAX_VOXELS, it should return here,
+  // otherwise, memory will be corrupted by "((float4*)voxel_features)[outIndex] = ((float4*)voxels)[inIndex];"
+  if( current_pillarId >= MAX_VOXELS ) return;
 
   voxel_num[current_pillarId] = count;
 
